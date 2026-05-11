@@ -125,6 +125,70 @@ defmodule SymphonyElixir.LocalTracker.Adapter do
     end
   end
 
+  # ─── lifecycle hooks (called by AgentRunner) ──────────────────────────
+
+  @doc """
+  Marks a task as `in_progress` and creates a fresh task_run row. Called by
+  AgentRunner when an agent worker starts for a task. Safe to call when the
+  tracker isn't local — returns `:ok` if the task can't be resolved.
+  """
+  @spec on_agent_started(String.t(), map()) :: :ok
+  def on_agent_started(task_id, metadata \\ %{}) when is_binary(task_id) do
+    case Control.get_task(task_id) do
+      nil ->
+        :ok
+
+      task ->
+        _ = Control.transition_task(task, "in_progress")
+
+        _ =
+          Control.create_task_run(%{
+            task_id: task.id,
+            started_at: DateTime.utc_now(),
+            codex_session_id: Map.get(metadata, :codex_session_id),
+            log_path: Map.get(metadata, :log_path)
+          })
+
+        :ok
+    end
+  end
+
+  @doc """
+  Marks a task as terminal and finalises the most-recent task_run row.
+  `outcome` is one of `:done | :failed | :stopped`. Optional metadata may
+  carry exit_reason, tokens_in/out, cost_estimate_usd, codex_session_id.
+  """
+  @spec on_agent_finished(String.t(), :done | :failed | :stopped, map()) :: :ok
+  def on_agent_finished(task_id, outcome, metadata \\ %{})
+      when is_binary(task_id) and outcome in [:done, :failed, :stopped] do
+    case Control.get_task(task_id) do
+      nil ->
+        :ok
+
+      task ->
+        new_status = Atom.to_string(outcome)
+        _ = Control.transition_task(task, new_status)
+
+        with [latest | _] <- Control.list_task_runs(task.id),
+             true <- is_nil(latest.finished_at) do
+          _ =
+            Control.update_task_run(latest, %{
+              finished_at: DateTime.utc_now(),
+              exit_reason: Map.get(metadata, :exit_reason),
+              tokens_in: Map.get(metadata, :tokens_in),
+              tokens_out: Map.get(metadata, :tokens_out),
+              cost_estimate_usd: Map.get(metadata, :cost_estimate_usd),
+              codex_session_id: Map.get(metadata, :codex_session_id),
+              log_path: Map.get(metadata, :log_path)
+            })
+
+          :ok
+        else
+          _ -> :ok
+        end
+    end
+  end
+
   # ─── private ──────────────────────────────────────────────────────────
 
   defp to_issue(%ControlTask{} = task) do

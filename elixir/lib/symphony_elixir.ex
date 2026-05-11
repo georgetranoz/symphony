@@ -22,8 +22,11 @@ defmodule SymphonyElixir.Application do
   @impl true
   def start(_type, _args) do
     :ok = SymphonyElixir.LogFile.configure()
+    {:ok, _} = Application.ensure_all_started(:ecto_sql)
+    {:ok, _} = Application.ensure_all_started(:ecto_sqlite3)
     SymphonyElixir.Repo.ensure_database_dir!()
-    ensure_repo_migrated!()
+    set_repo_database_path!()
+    migrate_repo!()
 
     children = [
       {Phoenix.PubSub, name: SymphonyElixir.PubSub},
@@ -48,14 +51,26 @@ defmodule SymphonyElixir.Application do
     :ok
   end
 
-  # Runs any pending Ecto migrations against the local control-plane DB before
-  # the supervised Repo starts. Uses Ecto.Migrator.with_repo/2 which spins the
-  # Repo up just long enough to migrate, then stops it. Errors are raised so
-  # boot fails loudly if migrations can't apply.
-  defp ensure_repo_migrated! do
+  # Inject the resolved DB path into application env so the supervised Repo
+  # picks it up. `runtime.exs` may not be evaluated for escripts, so we set
+  # it here unconditionally — safe to call repeatedly.
+  defp set_repo_database_path! do
+    existing = Application.get_env(:symphony_elixir, SymphonyElixir.Repo, [])
+    path = SymphonyElixir.Repo.database_path()
+    Application.put_env(:symphony_elixir, SymphonyElixir.Repo, Keyword.put(existing, :database, path))
+    :ok
+  end
+
+  # Run any pending Ecto migrations BEFORE the supervision tree starts, so
+  # the Orchestrator's init can query the DB. Uses Ecto.Migrator.with_repo/2
+  # which spins the Repo up just long enough to migrate, then stops it. The
+  # supervised Repo will then restart cleanly as a tree child.
+  defp migrate_repo! do
+    migrations_path = Application.app_dir(:symphony_elixir, "priv/repo/migrations")
+
     {:ok, _, _} =
       Ecto.Migrator.with_repo(SymphonyElixir.Repo, fn repo ->
-        Ecto.Migrator.run(repo, :up, all: true)
+        Ecto.Migrator.run(repo, migrations_path, :up, all: true)
       end)
 
     :ok

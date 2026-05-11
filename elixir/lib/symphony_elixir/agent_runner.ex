@@ -16,15 +16,45 @@ defmodule SymphonyElixir.AgentRunner do
 
     Logger.info("Starting agent run for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
 
+    notify_local_tracker_started(issue)
+
     case run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
       :ok ->
+        notify_local_tracker_finished(issue, :done)
         :ok
 
       {:error, reason} ->
+        notify_local_tracker_finished(issue, :failed, %{exit_reason: inspect(reason)})
         Logger.error("Agent run failed for #{issue_context(issue)}: #{inspect(reason)}")
         raise RuntimeError, "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}"
     end
   end
+
+  defp notify_local_tracker_started(%Issue{id: id}) when is_binary(id) do
+    if Config.settings!().tracker.kind == "local" do
+      SymphonyElixir.LocalTracker.Adapter.on_agent_started(id)
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp notify_local_tracker_started(_), do: :ok
+
+  defp notify_local_tracker_finished(issue, outcome, metadata \\ %{})
+
+  defp notify_local_tracker_finished(%Issue{id: id}, outcome, metadata) when is_binary(id) do
+    if Config.settings!().tracker.kind == "local" do
+      SymphonyElixir.LocalTracker.Adapter.on_agent_finished(id, outcome, metadata)
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp notify_local_tracker_finished(_, _, _), do: :ok
 
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
     Logger.info("Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")

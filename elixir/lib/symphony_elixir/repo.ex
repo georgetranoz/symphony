@@ -10,9 +10,18 @@ defmodule SymphonyElixir.Repo do
     otp_app: :symphony_elixir,
     adapter: Ecto.Adapters.SQLite3
 
+  # init/2 is called by Ecto every time the Repo is started. We use it to
+  # inject the database path so the value is resolved at boot rather than at
+  # compile time. This is more reliable than runtime.exs for escripts where
+  # runtime config evaluation isn't always wired up.
+  @impl true
+  def init(_type, config) do
+    {:ok, Keyword.put(config, :database, database_path())}
+  end
+
   @doc """
-  Resolve the on-disk path the repo should use. Honoured by config/runtime
-  helpers below and exposed for tooling (migrations, tests).
+  Resolve the on-disk path the repo should use. Honoured by `init/2` above
+  and exposed for tooling (migrations, tests).
   """
   @spec database_path() :: String.t()
   def database_path do
