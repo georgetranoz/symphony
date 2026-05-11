@@ -41,6 +41,7 @@ defmodule SymphonyElixir.Tracker do
     case Config.settings!().tracker.kind do
       "memory" -> SymphonyElixir.Tracker.Memory
       "github" -> SymphonyElixir.GitHub.Adapter
+      "local" -> SymphonyElixir.LocalTracker.Adapter
       _ -> SymphonyElixir.Linear.Adapter
     end
   end
