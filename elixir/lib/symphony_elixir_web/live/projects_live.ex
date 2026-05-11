@@ -82,6 +82,40 @@ defmodule SymphonyElixirWeb.ProjectsLive do
     end
   end
 
+  def handle_event("form_changed", %{"project" => incoming}, socket) do
+    if socket.assigns[:form] do
+      old = socket.assigns.form
+      merged = merge_project_form(old, incoming)
+      {:noreply, assign(socket, :form, merged)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("form_changed", _params, socket), do: {:noreply, socket}
+
+  def handle_event("browse_repo", _params, socket) do
+    if socket.assigns[:form] do
+      case pick_local_directory() do
+        {:ok, path} ->
+          path = path |> String.trim() |> String.trim_trailing("/")
+          form = Map.put(socket.assigns.form, "repo_path", path)
+          {:noreply, assign(socket, :form, form)}
+
+        :cancel ->
+          {:noreply, socket}
+
+        {:error, reason} ->
+          msg =
+            "Could not open a folder picker (#{inspect(reason)}). You can still type the path above."
+
+          {:noreply, flash(socket, :error, msg)}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
   # ─── render ───────────────────────────────────────────────────────────
 
   @impl true
@@ -101,9 +135,12 @@ defmodule SymphonyElixirWeb.ProjectsLive do
         </div>
       <% end %>
 
-      <form phx-submit="save" style="display: grid; gap: 16px;">
+      <form phx-change="form_changed" phx-submit="save" style="display: grid; gap: 16px;">
         <.text_field label="Project name" name="project[name]" value={@form["name"]} placeholder="e.g. inkfortress-webapp" />
-        <.text_field label="Repository path" name="project[repo_path]" value={@form["repo_path"]} placeholder="/Volumes/Morgana/Dev/Ink Fortress/WebApp" />
+        <.repo_path_field
+          value={@form["repo_path"]}
+          placeholder="/Volumes/Morgana/Dev/Ink Fortress/WebApp"
+        />
         <.text_field label="Default branch" name="project[default_branch]" value={@form["default_branch"]} />
         <.text_field label="Verification command (optional)" name="project[verification_command]" value={@form["verification_command"]} placeholder="e.g. npm test --silent" />
 
@@ -111,7 +148,13 @@ defmodule SymphonyElixirWeb.ProjectsLive do
           <h3 style="grid-column: 1 / span 2; margin: 0 0 4px; font-size: 14px; color: #4b5563;">Default orchestrator LLM (optional)</h3>
           <.select_field label="Provider" name="project[default_orchestrator_provider_id]" value={@form["default_orchestrator_provider_id"]}
             options={provider_options(@providers)} />
-          <.text_field label="Model" name="project[default_orchestrator_model]" value={@form["default_orchestrator_model"]} placeholder="claude-opus-4-5" />
+          <.select_field
+            label="Model"
+            name="project[default_orchestrator_model]"
+            value={@form["default_orchestrator_model"]}
+            options={model_options(@providers, @form["default_orchestrator_provider_id"], @form["default_orchestrator_model"])}
+            empty_hint="Pick a provider and refresh models on the Providers page if the list is empty."
+          />
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; background: #f9fafb; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb;">
@@ -122,7 +165,13 @@ defmodule SymphonyElixirWeb.ProjectsLive do
             options={[{"Single coder", "single"}, {"Two-phase (orchestrator → fan-out)", "two_phase"}]} />
           <.select_field label="Provider" name="project[default_coder_provider_id]" value={@form["default_coder_provider_id"]}
             options={provider_options(@providers)} />
-          <.text_field label="Model" name="project[default_coder_model]" value={@form["default_coder_model"]} placeholder="deepseek-v4-pro" />
+          <.select_field
+            label="Model"
+            name="project[default_coder_model]"
+            value={@form["default_coder_model"]}
+            options={model_options(@providers, @form["default_coder_provider_id"], @form["default_coder_model"])}
+            empty_hint="Pick a provider and refresh models on the Providers page if the list is empty."
+          />
         </div>
 
         <div style="display: flex; gap: 12px; margin-top: 8px;">
@@ -200,25 +249,63 @@ defmodule SymphonyElixirWeb.ProjectsLive do
 
   # ─── inline components ────────────────────────────────────────────────
 
-  attr :label, :string, required: true
-  attr :name, :string, required: true
-  attr :value, :string, default: ""
-  attr :placeholder, :string, default: ""
+  attr(:label, :string, required: true)
+  attr(:name, :string, required: true)
+  attr(:value, :string, default: "")
+  attr(:placeholder, :string, default: "")
 
   defp text_field(assigns) do
     ~H"""
     <label style="display: flex; flex-direction: column; gap: 4px;">
       <span style="font-size: 12px; color: #6b7280;">{@label}</span>
-      <input type="text" name={@name} value={@value} placeholder={@placeholder}
+      <input type="text" name={@name} value={@value} placeholder={@placeholder} phx-debounce="400"
         style="padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;" />
     </label>
     """
   end
 
-  attr :label, :string, required: true
-  attr :name, :string, required: true
-  attr :value, :string, default: ""
-  attr :options, :list, required: true
+  attr(:value, :string, default: "")
+  attr(:placeholder, :string, default: "")
+
+  defp repo_path_field(assigns) do
+    ~H"""
+    <label style="display: flex; flex-direction: column; gap: 4px;">
+      <span style="font-size: 12px; color: #6b7280;">Repository path</span>
+      <div style="display: flex; border: 1px solid #d1d5db; border-radius: 6px; overflow: hidden; background: #fff;">
+        <button
+          type="button"
+          phx-click="browse_repo"
+          title="Open folder picker (macOS Finder / Linux)"
+          style="flex-shrink: 0; padding: 8px 12px; border: 0; border-right: 1px solid #d1d5db; background: #f9fafb; font-size: 12px; font-weight: 600; color: #374151; cursor: pointer;"
+        >
+          Folder
+        </button>
+        <input
+          type="text"
+          name="project[repo_path]"
+          value={@value}
+          placeholder={@placeholder}
+          phx-debounce="300"
+          style="flex: 1; min-width: 0; padding: 8px 10px; border: 0; font-size: 14px; outline: none; background: transparent;"
+        />
+        <button
+          type="button"
+          phx-click="browse_repo"
+          style="flex-shrink: 0; padding: 8px 14px; border: 0; border-left: 1px solid #d1d5db; background: #f3f4f6; font-size: 13px; font-weight: 600; color: #374151; cursor: pointer;"
+        >
+          Browse…
+        </button>
+      </div>
+      <span style="font-size: 11px; color: #9ca3af;">Use Folder or Browse to open Finder (macOS) or your system folder dialog (Linux). You can still type or paste a path.</span>
+    </label>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:name, :string, required: true)
+  attr(:value, :string, default: "")
+  attr(:options, :list, required: true)
+  attr(:empty_hint, :string, default: nil)
 
   defp select_field(assigns) do
     ~H"""
@@ -230,6 +317,9 @@ defmodule SymphonyElixirWeb.ProjectsLive do
           <option value={val} selected={to_string(val) == to_string(@value)}>{label}</option>
         <% end %>
       </select>
+      <%= if @empty_hint && @options == [] do %>
+        <span style="font-size: 11px; color: #9ca3af;">{@empty_hint}</span>
+      <% end %>
     </label>
     """
   end
@@ -238,6 +328,127 @@ defmodule SymphonyElixirWeb.ProjectsLive do
 
   defp provider_options(providers) do
     Enum.map(providers, fn %Provider{id: id, name: name} -> {name, id} end)
+  end
+
+  defp merge_project_form(%{} = old, incoming) when is_map(incoming) do
+    incoming =
+      for {k, v} <- incoming, into: %{} do
+        {to_string(k), form_param_to_string(v)}
+      end
+
+    merged = Map.merge(old, incoming)
+
+    merged =
+      if old["default_orchestrator_provider_id"] != merged["default_orchestrator_provider_id"] do
+        Map.put(merged, "default_orchestrator_model", "")
+      else
+        merged
+      end
+
+    merged =
+      if old["default_coder_provider_id"] != merged["default_coder_provider_id"] do
+        Map.put(merged, "default_coder_model", "")
+      else
+        merged
+      end
+
+    merged
+  end
+
+  defp form_param_to_string(v) when is_binary(v), do: v
+  defp form_param_to_string(v), do: to_string(v)
+
+  defp model_options(providers, provider_id, current_model) do
+    list =
+      case provider_by_id(providers, provider_id) do
+        %Provider{models: %{"list" => models}} when is_list(models) -> models
+        _ -> []
+      end
+
+    cur = to_string(current_model || "")
+
+    opts = Enum.map(list, fn m -> {m, m} end)
+
+    if cur != "" and cur not in list do
+      [{cur <> " (current)", cur} | opts]
+    else
+      opts
+    end
+  end
+
+  defp provider_by_id(_providers, id) when id in [nil, "", false], do: nil
+
+  defp provider_by_id(providers, id) do
+    want = to_string(id)
+    Enum.find(providers, fn %Provider{id: pid} -> to_string(pid) == want end)
+  end
+
+  defp pick_local_directory do
+    case :os.type() do
+      {:unix, :darwin} -> pick_macos_folder_applescript()
+      {:unix, _} -> pick_linux_zenity_folder()
+      {:win32, _} -> {:error, :windows_not_supported}
+    end
+  end
+
+  defp pick_macos_folder_applescript do
+    script = """
+    try
+      set f to choose folder with prompt "Select your git repository folder"
+      return POSIX path of f
+    on error number -128
+      return ""
+    on error errMsg number errNum
+      return "ERROR:" & errMsg
+    end try
+    """
+
+    case System.cmd("osascript", ["-e", script], stderr_to_stdout: true) do
+      {out, 0} ->
+        out = String.trim(out)
+
+        cond do
+          out == "" -> :cancel
+          String.starts_with?(out, "ERROR:") -> {:error, String.trim_leading(out, "ERROR:")}
+          true -> {:ok, out}
+        end
+
+      {err, status} ->
+        {:error, "osascript exit #{status}: #{String.trim(err)}"}
+    end
+  end
+
+  defp pick_linux_zenity_folder do
+    case System.cmd("which", ["zenity"]) do
+      {path, 0} ->
+        zenity = String.trim(path)
+
+        if zenity == "" do
+          {:error, :zenity_not_found}
+        else
+          case System.cmd(
+                 zenity,
+                 ["--file-selection", "--directory", "--title=Select repository folder"],
+                 stderr_to_stdout: true
+               ) do
+            {out, 0} ->
+              chosen = String.trim(out)
+              if chosen == "", do: :cancel, else: {:ok, chosen}
+
+            {out, code} when code != 0 ->
+              trimmed = String.trim(out)
+
+              if trimmed == "" do
+                :cancel
+              else
+                {:error, "zenity exit #{code}: #{trimmed}"}
+              end
+          end
+        end
+
+      _ ->
+        {:error, :zenity_not_found}
+    end
   end
 
   defp project_to_form(%Project{} = p) do
