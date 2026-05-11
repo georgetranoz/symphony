@@ -2,6 +2,17 @@ import Config
 
 config :phoenix, :json_library, Jason
 
+# Ecto / SQLite repo for the local control plane.
+# The actual database path is resolved at boot from SYMPHONY_DB_PATH or
+# `~/.symphony/db.sqlite` (see SymphonyElixir.Repo.database_path/0).
+config :symphony_elixir,
+  ecto_repos: [SymphonyElixir.Repo]
+
+config :symphony_elixir, SymphonyElixir.Repo,
+  journal_mode: :wal,
+  pool_size: 5,
+  show_sensitive_data_on_connection_error: false
+
 config :symphony_elixir, SymphonyElixirWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,
   url: [host: "localhost"],
