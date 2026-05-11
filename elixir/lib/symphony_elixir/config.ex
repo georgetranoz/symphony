@@ -83,11 +83,20 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  @spec server_port() :: non_neg_integer() | nil
+  @spec server_port() :: pos_integer()
   def server_port do
     case Application.get_env(:symphony_elixir, :server_port_override) do
-      port when is_integer(port) and port >= 0 -> port
-      _ -> settings!().server.port
+      port when is_integer(port) and port > 0 ->
+        port
+
+      _ ->
+        case settings() do
+          {:ok, %{server: %{port: p}}} when is_integer(p) and p > 0 ->
+            p
+
+          _ ->
+            4000
+        end
     end
   end
 
@@ -135,7 +144,7 @@ defmodule SymphonyElixir.Config do
         {:error, :missing_github_repo}
 
       settings.tracker.kind == "github" and
-          is_binary(settings.tracker.project_slug) and
+        is_binary(settings.tracker.project_slug) and
           not String.contains?(settings.tracker.project_slug, "/") ->
         {:error, :invalid_github_repo_format}
 

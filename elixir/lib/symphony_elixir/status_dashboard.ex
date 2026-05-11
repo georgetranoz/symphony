@@ -403,10 +403,20 @@ defmodule SymphonyElixir.StatusDashboard do
       end
 
     project_line = colorize("│ Project: ", @ansi_bold) <> project_part
+    host = Config.settings!().server.host
+    configured_port = Config.server_port()
 
-    case dashboard_url() do
-      url when is_binary(url) ->
+    case HttpServer.bound_port() do
+      bound when is_integer(bound) and bound > 0 ->
+        url = "http://#{dashboard_url_host(host)}:#{bound}/"
+
         [project_line, colorize("│ Dashboard: ", @ansi_bold) <> colorize(url, @ansi_cyan)]
+
+      _ when is_integer(configured_port) and configured_port > 0 ->
+        hint =
+          "offline (not listening on port #{configured_port}; see elixir/log/symphony.log)"
+
+        [project_line, colorize("│ Dashboard: ", @ansi_bold) <> colorize(hint, @ansi_gray)]
 
       _ ->
         [project_line]
@@ -428,22 +438,6 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp linear_project_url(project_slug), do: "https://linear.app/project/#{project_slug}/issues"
-
-  defp dashboard_url do
-    dashboard_url(Config.settings!().server.host, Config.server_port(), HttpServer.bound_port())
-  end
-
-  defp dashboard_url(_host, nil, _bound_port), do: nil
-
-  defp dashboard_url(host, configured_port, bound_port) do
-    port = bound_port || configured_port
-
-    if is_integer(port) and port > 0 do
-      "http://#{dashboard_url_host(host)}:#{port}/"
-    else
-      nil
-    end
-  end
 
   defp dashboard_url_host(host) when host in ["0.0.0.0", "::", "[::]", ""], do: "127.0.0.1"
 
@@ -544,8 +538,21 @@ defmodule SymphonyElixir.StatusDashboard do
   @doc false
   @spec dashboard_url_for_test(String.t(), non_neg_integer() | nil, non_neg_integer() | nil) ::
           String.t() | nil
-  def dashboard_url_for_test(host, configured_port, bound_port),
-    do: dashboard_url(host, configured_port, bound_port)
+  def dashboard_url_for_test(host, configured_port, bound_port) do
+    case bound_port do
+      p when is_integer(p) and p > 0 ->
+        "http://#{dashboard_url_host(host)}:#{p}/"
+
+      _ ->
+        case configured_port do
+          p when is_integer(p) and p > 0 ->
+            "http://#{dashboard_url_host(host)}:#{p}/"
+
+          _ ->
+            nil
+        end
+    end
+  end
 
   defp snapshot_payload do
     if Process.whereis(Orchestrator) do

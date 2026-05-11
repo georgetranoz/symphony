@@ -6,6 +6,7 @@
 │ Tokens: in 18,000 | out 2,200 | total 20,200
 │ Rate Limits: gpt-5 | primary 0/20,000 reset 95s | secondary 0/60 reset 45s | credits none
 │ Project: https://linear.app/project/project/issues
+│ Dashboard: offline (not listening on port 4000; see elixir/log/symphony.log)
 │ Next refresh: n/a
 ├─ Running
 │

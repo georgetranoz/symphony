@@ -6,6 +6,7 @@
 │ Tokens: in 0 | out 0 | total 0
 │ Rate Limits: unavailable
 │ Project: https://linear.app/project/project/issues
+│ Dashboard: offline (not listening on port 4000; see elixir/log/symphony.log)
 │ Next refresh: n/a
 ├─ Running
 │

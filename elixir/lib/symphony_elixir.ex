@@ -33,8 +33,10 @@ defmodule SymphonyElixir.Application do
       {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
       SymphonyElixir.Repo,
       SymphonyElixir.WorkflowStore,
-      SymphonyElixir.Orchestrator,
+      # HTTP dashboard before orchestrator so the LiveView UI is reachable even if
+      # later children are slow to boot or misconfigured.
       SymphonyElixir.HttpServer,
+      SymphonyElixir.Orchestrator,
       SymphonyElixir.StatusDashboard
     ]
 
@@ -63,15 +65,25 @@ defmodule SymphonyElixir.Application do
 
   # Run any pending Ecto migrations BEFORE the supervision tree starts, so
   # the Orchestrator's init can query the DB. Uses Ecto.Migrator.with_repo/2
-  # which spins the Repo up just long enough to migrate, then stops it. The
-  # supervised Repo will then restart cleanly as a tree child.
+  # which spins the Repo up just long enough to migrate, then stops it.
+  #
+  # If the Repo supervisor has already exited (for example the pool child died
+  # and the Repo supervisor uses max_restarts: 0), `with_repo`'s cleanup calls
+  # `Repo.stop/0` and that can exit with {:noproc, ...}. Swallowing that
+  # specific exit still leaves the supervised Repo to start cleanly as a tree
+  # child; any other exit is re-raised.
   defp migrate_repo! do
     migrations_path = Application.app_dir(:symphony_elixir, "priv/repo/migrations")
 
-    {:ok, _, _} =
-      Ecto.Migrator.with_repo(SymphonyElixir.Repo, fn repo ->
-        Ecto.Migrator.run(repo, migrations_path, :up, all: true)
-      end)
+    try do
+      {:ok, _, _} =
+        Ecto.Migrator.with_repo(SymphonyElixir.Repo, fn repo ->
+          Ecto.Migrator.run(repo, migrations_path, :up, all: true)
+        end)
+    catch
+      :exit, {:noproc, {GenServer, :stop, [SymphonyElixir.Repo | _]}} -> :ok
+      :exit, {:noproc, {Supervisor, :stop, [SymphonyElixir.Repo | _]}} -> :ok
+    end
 
     :ok
   end

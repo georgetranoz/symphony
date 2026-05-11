@@ -396,8 +396,18 @@ defmodule SymphonyElixir.Config.Schema do
         turn_sandbox_policy: normalize_optional_map(settings.codex.turn_sandbox_policy)
     }
 
-    %{settings | tracker: tracker, workspace: workspace, codex: codex}
+    # Observability HTTP (Phoenix) binds here. When `server.port` is omitted from
+    # WORKFLOW.md, `HttpServer` would otherwise skip starting and the dashboard URL
+    # is unreachable — default to a conventional dev port.
+    server = %{settings.server | port: server_port_or_default(settings.server.port)}
+
+    %{settings | tracker: tracker, workspace: workspace, codex: codex, server: server}
   end
+
+  # Port 0 means "pick an ephemeral port" at the OS level — the dashboard URL would
+  # not match the common http://127.0.0.1:4000 expectation, so treat non‑positive as unset.
+  defp server_port_or_default(port) when is_integer(port) and port > 0, do: port
+  defp server_port_or_default(_), do: 4000
 
   defp normalize_keys(value) when is_map(value) do
     Enum.reduce(value, %{}, fn {key, raw_value}, normalized ->

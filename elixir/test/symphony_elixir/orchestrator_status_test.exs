@@ -984,7 +984,8 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
     assert rendered =~ "https://linear.app/project/project/issues"
-    refute rendered =~ "Dashboard:"
+    assert rendered =~ "│ Dashboard:"
+    assert rendered =~ "not listening"
   end
 
   test "status dashboard renders dashboard url on its own line when server port is configured" do
@@ -1014,7 +1015,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert rendered =~ "│ Project:"
     assert rendered =~ "https://linear.app/project/project/issues"
     assert rendered =~ "│ Dashboard:"
-    assert rendered =~ "http://127.0.0.1:4000/"
+    # Header only shows a clickable URL when Phoenix is actually listening; in unit
+    # tests the endpoint is not started, so we surface an offline hint instead.
+    assert rendered =~ "not listening on port 4000"
   end
 
   test "status dashboard prefers the bound server port and normalizes wildcard hosts" do

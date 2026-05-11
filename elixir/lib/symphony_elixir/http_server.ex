@@ -3,6 +3,8 @@ defmodule SymphonyElixir.HttpServer do
   Compatibility facade that starts the Phoenix observability endpoint when enabled.
   """
 
+  require Logger
+
   alias SymphonyElixir.{Config, Orchestrator}
   alias SymphonyElixirWeb.Endpoint
 
@@ -18,14 +20,18 @@ defmodule SymphonyElixir.HttpServer do
 
   @spec start_link(keyword()) :: GenServer.on_start() | :ignore
   def start_link(opts \\ []) do
-    case Keyword.get(opts, :port, Config.server_port()) do
-      port when is_integer(port) and port >= 0 ->
+    raw_port = Keyword.get(opts, :port) || Config.server_port()
+    port = listen_port(raw_port)
+
+    case port do
+      port when is_integer(port) and port > 0 ->
         host = Keyword.get(opts, :host, Config.settings!().server.host)
         orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
         snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
 
         with {:ok, ip} <- parse_host(host) do
           endpoint_opts = [
+            otp_app: :symphony_elixir,
             server: true,
             http: [ip: ip, port: port],
             url: [host: normalize_host(host)],
@@ -40,13 +46,32 @@ defmodule SymphonyElixir.HttpServer do
             |> Keyword.merge(endpoint_opts)
 
           Application.put_env(:symphony_elixir, Endpoint, endpoint_config)
-          Endpoint.start_link()
+
+          case Endpoint.start_link() do
+            {:ok, _} = ok ->
+              Logger.info("Symphony web dashboard listening on http://#{normalize_host(host)}:#{port}/")
+
+              ok
+
+            other ->
+              Logger.error("Symphony HttpServer: Phoenix.Endpoint failed to start: #{inspect(other)}")
+              other
+          end
+        else
+          reason ->
+            Logger.error("Symphony HttpServer: cannot resolve bind host #{inspect(host)} (#{inspect(reason)}); web UI disabled")
+
+            :ignore
         end
 
       _ ->
+        Logger.warning("Symphony HttpServer: invalid listen port #{inspect(raw_port)}; web UI disabled")
         :ignore
     end
   end
+
+  defp listen_port(port) when is_integer(port) and port > 0, do: port
+  defp listen_port(_), do: 4000
 
   @spec bound_port(term()) :: non_neg_integer() | nil
   def bound_port(_server \\ __MODULE__) do
