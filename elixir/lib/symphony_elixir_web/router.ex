@@ -32,6 +32,7 @@ defmodule SymphonyElixirWeb.Router do
     live("/projects/:id/board", TaskBoardLive, :index)
     live("/projects/:id/tasks/new", TaskBoardLive, :new_task)
     live("/projects/:id/tasks/:task_id", TaskBoardLive, :show_task)
+    post("/quit", QuitController, :quit)
   end
 
   scope "/", SymphonyElixirWeb do
