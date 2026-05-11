@@ -25,6 +25,13 @@ defmodule SymphonyElixirWeb.Router do
     pipe_through(:browser)
 
     live("/", DashboardLive, :index)
+    live("/providers", ProvidersLive, :index)
+    live("/projects", ProjectsLive, :index)
+    live("/projects/new", ProjectsLive, :new)
+    live("/projects/:id/edit", ProjectsLive, :edit)
+    live("/projects/:id/board", TaskBoardLive, :index)
+    live("/projects/:id/tasks/new", TaskBoardLive, :new_task)
+    live("/projects/:id/tasks/:task_id", TaskBoardLive, :show_task)
   end
 
   scope "/", SymphonyElixirWeb do
