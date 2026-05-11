@@ -119,7 +119,7 @@ defmodule SymphonyElixir.Config do
       is_nil(settings.tracker.kind) ->
         {:error, :missing_tracker_kind}
 
-      settings.tracker.kind not in ["linear", "memory"] ->
+      settings.tracker.kind not in ["linear", "memory", "github"] ->
         {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
 
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
@@ -127,6 +127,17 @@ defmodule SymphonyElixir.Config do
 
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
         {:error, :missing_linear_project_slug}
+
+      settings.tracker.kind == "github" and not is_binary(settings.tracker.api_key) ->
+        {:error, :missing_github_token}
+
+      settings.tracker.kind == "github" and not is_binary(settings.tracker.project_slug) ->
+        {:error, :missing_github_repo}
+
+      settings.tracker.kind == "github" and
+          is_binary(settings.tracker.project_slug) and
+          not String.contains?(settings.tracker.project_slug, "/") ->
+        {:error, :invalid_github_repo_format}
 
       true ->
         :ok
@@ -146,6 +157,15 @@ defmodule SymphonyElixir.Config do
 
       :workflow_front_matter_not_a_map ->
         "Failed to parse WORKFLOW.md: workflow front matter must decode to a map"
+
+      :missing_github_token ->
+        "Missing GitHub token: set GITHUB_TOKEN env var or tracker.api_key in WORKFLOW.md"
+
+      :missing_github_repo ->
+        "Missing GitHub repo: set tracker.project_slug to \"owner/repo\" in WORKFLOW.md"
+
+      :invalid_github_repo_format ->
+        "Invalid GitHub repo: tracker.project_slug must be in \"owner/repo\" form"
 
       other ->
         "Invalid WORKFLOW.md config: #{inspect(other)}"

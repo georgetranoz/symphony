@@ -1,9 +1,13 @@
 defmodule SymphonyElixir.Codex.DynamicTool do
   @moduledoc """
   Executes client-side tool calls requested by Codex app-server turns.
+
+  The `linear_graphql` tool is only exposed when the configured tracker
+  kind is `linear`. For other trackers (e.g. `github`, `memory`) `tool_specs/0`
+  returns an empty list so agents are never offered the tool.
   """
 
-  alias SymphonyElixir.Linear.Client
+  alias SymphonyElixir.{Config, Linear.Client}
 
   @linear_graphql_tool "linear_graphql"
   @linear_graphql_description """
@@ -44,13 +48,25 @@ defmodule SymphonyElixir.Codex.DynamicTool do
 
   @spec tool_specs() :: [map()]
   def tool_specs do
-    [
-      %{
-        "name" => @linear_graphql_tool,
-        "description" => @linear_graphql_description,
-        "inputSchema" => @linear_graphql_input_schema
-      }
-    ]
+    case tracker_kind() do
+      "linear" ->
+        [
+          %{
+            "name" => @linear_graphql_tool,
+            "description" => @linear_graphql_description,
+            "inputSchema" => @linear_graphql_input_schema
+          }
+        ]
+
+      _ ->
+        []
+    end
+  end
+
+  defp tracker_kind do
+    Config.settings!().tracker.kind
+  rescue
+    _ -> nil
   end
 
   defp execute_linear_graphql(arguments, opts) do

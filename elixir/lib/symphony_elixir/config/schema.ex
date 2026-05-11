@@ -46,7 +46,10 @@ defmodule SymphonyElixir.Config.Schema do
 
     embedded_schema do
       field(:kind, :string)
-      field(:endpoint, :string, default: "https://api.linear.app/graphql")
+      # Endpoint defaults to nil so it can be resolved per-tracker-kind in
+      # finalize_settings/1 (Linear vs GitHub). Users can still override it
+      # in WORKFLOW.md.
+      field(:endpoint, :string)
       field(:api_key, :string)
       field(:project_slug, :string)
       field(:assignee, :string)
@@ -366,10 +369,20 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp finalize_settings(settings) do
+    {api_key_env, assignee_env, default_endpoint} =
+      case settings.tracker.kind do
+        "github" ->
+          {"GITHUB_TOKEN", "GITHUB_ASSIGNEE", "https://api.github.com"}
+
+        _ ->
+          {"LINEAR_API_KEY", "LINEAR_ASSIGNEE", "https://api.linear.app/graphql"}
+      end
+
     tracker = %{
       settings.tracker
-      | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
-        assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
+      | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env(api_key_env)),
+        assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env(assignee_env)),
+        endpoint: settings.tracker.endpoint || default_endpoint
     }
 
     workspace = %{
