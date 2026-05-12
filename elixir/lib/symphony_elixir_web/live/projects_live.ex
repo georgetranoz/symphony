@@ -159,9 +159,9 @@ defmodule SymphonyElixirWeb.ProjectsLive do
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; background: #f9fafb; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb;">
           <h3 style="grid-column: 1 / span 2; margin: 0 0 4px; font-size: 14px; color: #4b5563;">Default coder</h3>
-          <.select_field label="Coder kind" name="project[default_coder_kind]" value={@form["default_coder_kind"]}
+          <.required_select_field label="Coder kind" name="project[default_coder_kind]" value={@form["default_coder_kind"]}
             options={[{"Codex CLI", "codex"}, {"Claude Code", "claude_code"}]} />
-          <.select_field label="Default mode" name="project[default_mode]" value={@form["default_mode"]}
+          <.required_select_field label="Default mode" name="project[default_mode]" value={@form["default_mode"]}
             options={[{"Single coder", "single"}, {"Two-phase (orchestrator → fan-out)", "two_phase"}]} />
           <.select_field label="Provider" name="project[default_coder_provider_id]" value={@form["default_coder_provider_id"]}
             options={provider_options(@providers)} />
@@ -305,6 +305,27 @@ defmodule SymphonyElixirWeb.ProjectsLive do
   attr(:name, :string, required: true)
   attr(:value, :string, default: "")
   attr(:options, :list, required: true)
+
+  defp required_select_field(assigns) do
+    # Like select_field but with NO empty option. The first option is selected
+    # by default if @value doesn't match any option, so this can never produce
+    # a blank submission. Use for fields the Project changeset requires.
+    ~H"""
+    <label style="display: flex; flex-direction: column; gap: 4px;">
+      <span style="font-size: 12px; color: #6b7280;">{@label}</span>
+      <select name={@name} style="padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+        <%= for {label, val} <- @options do %>
+          <option value={val} selected={to_string(val) == to_string(@value)}>{label}</option>
+        <% end %>
+      </select>
+    </label>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:name, :string, required: true)
+  attr(:value, :string, default: "")
+  attr(:options, :list, required: true)
   attr(:empty_hint, :string, default: nil)
 
   defp select_field(assigns) do
@@ -392,18 +413,21 @@ defmodule SymphonyElixirWeb.ProjectsLive do
   end
 
   defp pick_macos_folder_applescript do
-    script = """
-    try
-      set f to choose folder with prompt "Select your git repository folder"
-      return POSIX path of f
-    on error number -128
-      return ""
-    on error errMsg number errNum
-      return "ERROR:" & errMsg
-    end try
-    """
+    # Use one -e arg per AppleScript statement. Passing a multi-line script
+    # as a single -e string trips osascript's parser in some macOS versions.
+    # Single `on error` clause dispatches on the error number (-128 = user
+    # cancelled with Cmd-. or Cancel button).
+    args = [
+      "-e", "try",
+      "-e", "set f to choose folder with prompt \"Select your git repository folder\"",
+      "-e", "return POSIX path of f",
+      "-e", "on error errMsg number errNum",
+      "-e", "if errNum is -128 then return \"\"",
+      "-e", "return \"ERROR:\" & errMsg",
+      "-e", "end try"
+    ]
 
-    case System.cmd("osascript", ["-e", script], stderr_to_stdout: true) do
+    case System.cmd("osascript", args, stderr_to_stdout: true) do
       {out, 0} ->
         out = String.trim(out)
 
@@ -469,10 +493,41 @@ defmodule SymphonyElixirWeb.ProjectsLive do
   defp normalize_attrs(attrs) do
     attrs
     |> Enum.map(fn
+      # Strip surrounding quotes a user may have pasted in (e.g. when copying
+      # a path from Finder's "Copy as Pathname" sometimes produces quoted forms).
+      {"repo_path", v} when is_binary(v) -> {"repo_path", strip_wrapping_quotes(v)}
       {k, ""} -> {k, nil}
       pair -> pair
     end)
     |> Map.new()
+    # Apply hard-coded defaults for required fields so a stray blank from the
+    # form can never produce a changeset validation error. These mirror the
+    # Ecto schema defaults.
+    |> Map.update("default_coder_kind", "codex", fn
+      nil -> "codex"
+      "" -> "codex"
+      v -> v
+    end)
+    |> Map.update("default_mode", "single", fn
+      nil -> "single"
+      "" -> "single"
+      v -> v
+    end)
+    |> Map.update("default_branch", "main", fn
+      nil -> "main"
+      "" -> "main"
+      v -> v
+    end)
+  end
+
+  defp strip_wrapping_quotes(s) when is_binary(s) do
+    trimmed = String.trim(s)
+
+    case trimmed do
+      "\"" <> rest -> rest |> String.trim_trailing("\"") |> String.trim()
+      "'" <> rest -> rest |> String.trim_trailing("'") |> String.trim()
+      _ -> trimmed
+    end
   end
 
   defp coder_model_note(%Project{default_coder_model: m}) when is_binary(m) and m != "",
